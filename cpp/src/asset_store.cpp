@@ -8,6 +8,7 @@
 #include <array>
 #include <bit>
 #include <chrono>
+#include <cstdint>
 #include <fstream>
 #include <random>
 #include <stdexcept>
@@ -99,7 +100,14 @@ void atomic_write(const std::filesystem::path& path, std::span<const std::uint8_
     auto temporary = path;
     // A sibling temporary stays on the destination filesystem, allowing rename
     // to replace an existing pack only after writing and closing has succeeded.
-    temporary += ".tmp." + std::to_string(std::random_device{}()) + "." +
+    // random_device may throw where no entropy source exists (3DS newlib).
+    unsigned salt = 0;
+    try {
+        salt = std::random_device{}();
+    } catch (...) {
+        salt = static_cast<unsigned>(reinterpret_cast<std::uintptr_t>(&salt));
+    }
+    temporary += ".tmp." + std::to_string(salt) + "." +
                  std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     try {
         std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
@@ -112,7 +120,15 @@ void atomic_write(const std::filesystem::path& path, std::span<const std::uint8_
         if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
             throw std::system_error(GetLastError(), std::system_category(), "Cannot replace extracted assets");
 #else
-        std::filesystem::rename(temporary, path);
+        std::error_code renamed;
+        std::filesystem::rename(temporary, path, renamed);
+        if (renamed) {
+            // FAT devices (3DS SD card) refuse to rename over an existing file.
+            // The new pack is complete on disk, so replace the old one.
+            std::error_code ignored;
+            std::filesystem::remove(path, ignored);
+            std::filesystem::rename(temporary, path);
+        }
 #endif
     } catch (...) {
         // Failed imports leave a previous good pack intact and remove our temp.
@@ -181,8 +197,15 @@ void import_assets(const std::filesystem::path& rom_path, const std::filesystem:
     std::error_code ignored;
     // Check both filesystem identity (including hard links) and canonical path
     // spelling before opening any output. The donor must remain untouched.
-    if (std::filesystem::equivalent(rom_path, pack_path, ignored) ||
-        std::filesystem::weakly_canonical(rom_path) == std::filesystem::weakly_canonical(pack_path))
+    // Canonicalization needs realpath(), which some platforms (3DS sdmc:/
+    // devices) lack; fall back to lexical comparison instead of failing.
+    std::error_code rom_error, pack_error;
+    const auto rom_canonical = std::filesystem::weakly_canonical(rom_path, rom_error);
+    const auto pack_canonical = std::filesystem::weakly_canonical(pack_path, pack_error);
+    const bool same_spelling = (rom_error || pack_error)
+        ? rom_path.lexically_normal() == pack_path.lexically_normal()
+        : rom_canonical == pack_canonical;
+    if (std::filesystem::equivalent(rom_path, pack_path, ignored) || same_spelling)
         throw std::runtime_error("Choose a separate asset-pack destination; the original ROM is never overwritten.");
     const auto rom = read_file(rom_path, layout.code_image.size() + 512);
     std::span<const std::uint8_t> image(rom);
