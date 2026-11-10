@@ -7,7 +7,6 @@ on:
       - "cpp/**"
       - "generated/**"
       - ".github/workflows/build-3ds.yml"
-      - ".github/workflows/build-3ds.yaml"
   workflow_dispatch:
 
 jobs:
@@ -56,62 +55,8 @@ jobs:
               EnableCrypt             : false
               EnableCompress          : true
             AccessControlInfo:
-              CoreVersion             : 2
-              DescVersion             : 2
-              ReleaseKernelMajor      : "02"
-              ReleaseKernelMinor      : "33"
-              UseExtSaveData          : false
               FileSystemAccess:
                 - DirectSdmc
-              MemoryType              : Application
-              SystemMode              : 80MB
-              SystemModeExt           : 124MB
-              IdealProcessor          : 0
-              AffinityMask            : 1
-              Priority                : 16
-              MaxCpu                  : 0x9E
-              HandleTableSize         : 0x200
-              DisableDebug            : false
-              EnableForceDebug        : false
-              CanWriteSharedPage      : true
-              CanUsePrivilegedPriority: false
-              CanUseNonAlphabetAndNumber: true
-              PermitMainFunctionArgument: true
-              CanShareDeviceMemory    : true
-              RunnableOnSleep         : false
-              SpecialMemoryArrange    : true
-              ResourceLimitCategory   : APPLICATION
-              ServiceAccessControl:
-                - "$hioFIO"
-                - "$hostio0"
-                - "$hostio1"
-                - "ac:u"
-                - "apt:U"
-                - "cam:u"
-                - "cecd:u"
-                - "cfg:u"
-                - "csnd:SND"
-                - "dsp::DSP"
-                - "fs:USER"
-                - "gsp::Gpu"
-                - "gsp::Lcd"
-                - "hid:USER"
-                - "http:C"
-                - "ir:USER"
-                - "ir:rst"
-                - "ir:u"
-                - "ldr:ro"
-                - "mic:u"
-                - "ndm:u"
-                - "news:u"
-                - "nim:aoc"
-                - "nwm::UDS"
-                - "ptm:sysm"
-                - "ptm:u"
-                - "pxi:dev"
-                - "soc:U"
-                - "ssl:C"
-                - "y2r:u"
             SystemControlInfo:
               SaveDataSize            : 0KB
               RemasterVersion         : 0
@@ -146,7 +91,7 @@ jobs:
 
           ELF_FILE="build-3ds/phase-distorter-3ds.elf"
           if [ ! -f "$ELF_FILE" ]; then ELF_FILE="build-3ds/phase-distorter-3ds"; fi
-          makerom -f cia -o build-3ds/phase-distorter-3ds.cia -elf "$ELF_FILE" -rsf build-3ds/cia.rsf -icon build-3ds/phase-distorter-3ds.smdh -banner build-3ds/banner.bnr -DAPP_ENCRYPTED=false
+          makerom -f cia -o build-3ds/phase-distorter-3ds.cia -elf "$ELF_FILE" -rsf build-3ds/cia.rsf -desc app:4 -icon build-3ds/phase-distorter-3ds.smdh -banner build-3ds/banner.bnr -DAPP_ENCRYPTED=false
 
       - uses: actions/upload-artifact@v4
         with:
