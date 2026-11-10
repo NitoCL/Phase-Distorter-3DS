@@ -47,7 +47,6 @@ jobs:
           Option:
             UseOnSD                 : true
             FreeProductCode         : true
-            MediaFootprint          : false
             EnableCrypt             : false
             EnableCompress          : true
           AccessControlInfo:
