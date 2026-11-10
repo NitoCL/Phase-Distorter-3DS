@@ -4,6 +4,7 @@
 #include "eb/session_diagnostics.hpp"
 #include "eb/logical_clock_policy.hpp"
 #include "eb/presentation_frame.hpp"
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -13,6 +14,16 @@
 
 namespace eb {
 class GameDebug;
+
+// Read-only view of one playable party member, for secondary-screen frontends.
+// character is 1..4 (source roster order); zero marks an empty slot.
+struct PartyMemberStatus {
+    std::uint8_t character{};
+    std::uint8_t level{};
+    std::uint16_t hp{}, max_hp{}, pp{}, max_pp{};
+    std::uint8_t afflictions{};
+    bool operator==(const PartyMemberStatus &) const = default;
+};
 
 // Owns one game's hardware, translated processors, audio synthesis and debug
 // commands. Simulation receives explicit controller input and has no host clock,
@@ -54,6 +65,8 @@ class GameSession {
     void observe_completed_frames(FrameObserver observer);
 
     std::vector<std::int16_t> take_audio_samples();
+    // Playable members in party order. Reads work RAM only; never alters play.
+    std::array<PartyMemberStatus, 4> party_status() const;
     std::span<std::uint8_t> save_memory();
     std::span<const std::uint8_t> save_memory() const;
     SessionDiagnostics diagnostics(bool include_registers = false) const;

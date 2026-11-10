@@ -6,6 +6,7 @@
 #include "eb/snes_bus.hpp"
 #include "eb/spc700_audio_cpu.hpp"
 #include "eb/snapshot_archive.hpp"
+#include "generated_profile.hpp"
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
@@ -129,6 +130,34 @@ void GameSession::observe_completed_frames(FrameObserver observer) {
 std::vector<std::int16_t> GameSession::take_audio_samples() {
     return state_->audio_dsp.take_stereo_samples();
 }
+std::array<PartyMemberStatus, 4> GameSession::party_status() const {
+    std::array<PartyMemberStatus, 4> result{};
+    const auto &ram = state_->hardware.work_ram;
+    const auto &profile = source_profile(state_->hardware.game_version());
+    const auto &layout = profile.character_layout;
+    const auto word = [&](std::uint32_t address) {
+        if (address + 1 >= ram.size()) return std::uint16_t{};
+        return std::uint16_t(ram[address] | (ram[address + 1] << 8));
+    };
+    const unsigned count = std::min<unsigned>(ram[profile.party_state.count], 6);
+    unsigned out = 0;
+    for (unsigned slot = 0; slot < count && out < result.size(); ++slot) {
+        const unsigned character = ram[profile.party_state.members + slot];
+        if (character < 1 || character > 4) continue; // Guests and empty slots.
+        const auto record = layout.table_address + (character - 1) * layout.entry_size;
+        if (record + layout.entry_size > ram.size()) continue;
+        auto &member = result[out++];
+        member.character = std::uint8_t(character);
+        member.level = ram[record + layout.level];
+        member.hp = word(record + layout.current_hp);
+        member.max_hp = word(record + layout.max_hp);
+        member.pp = word(record + layout.current_pp);
+        member.max_pp = word(record + layout.max_pp);
+        member.afflictions = ram[record + layout.afflictions];
+    }
+    return result;
+}
+
 std::span<std::uint8_t> GameSession::save_memory() {
     return state_->hardware.save_ram;
 }
