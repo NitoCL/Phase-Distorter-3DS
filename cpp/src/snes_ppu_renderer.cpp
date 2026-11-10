@@ -506,6 +506,100 @@ GameSceneRenderer::CompositePixel GameSceneRenderer::compose_pixel(
     return {result, reference};
 }
 
+void GameSceneRenderer::compose_native_scanline(const SceneReadView &view, unsigned y,
+                                                const std::array<PpuPixel, 256> &objects, uint32_t *output) {
+    const auto &registers = view.ppu_registers;
+    const unsigned main_enable = registers[0x2c], sub_enable = registers[0x2d];
+    const unsigned main_mask = registers[0x2e], sub_mask = registers[0x2f];
+    const unsigned enabled = main_enable | sub_enable, masking = main_mask | sub_mask;
+    const unsigned cgwsel = registers[0x30], cgadsub = registers[0x31];
+
+    // Window membership depends only on x and this line's registers.
+    std::array<std::array<bool, 256>, 6> window;
+    for (unsigned layer = 0; layer < 5; ++layer)
+        if ((enabled & masking) & (1u << layer))
+            for (unsigned x = 0; x < 256; ++x)
+                window[layer][x] = view.layer_window_contains(layer, x);
+    const auto needs_window = [](unsigned policy) {
+        const unsigned clip = policy >> 6, prevent = (policy >> 4) & 3;
+        return clip == 1 || clip == 2 || prevent == 1 || prevent == 2;
+    };
+    const bool color_window = needs_window(cgwsel);
+    if (color_window)
+        for (unsigned x = 0; x < 256; ++x)
+            window[5][x] = view.layer_window_contains(5, x);
+
+    // Winners per screen, kept as compact per-field arrays: composition needs
+    // only color, priority, layer and the math flag. Layers are visited in the
+    // same ascending order as the per-pixel compositor and replacement needs
+    // strictly higher priority, so ties resolve identically.
+    std::array<uint16_t, 256> main_color, sub_color;
+    std::array<int, 256> main_priority, sub_priority;
+    std::array<uint8_t, 256> main_layer;
+    std::array<bool, 256> main_math;
+    main_color.fill(view.palette(0));
+    main_priority.fill(-1);
+    main_layer.fill(5);
+    main_math.fill(true);
+    sub_color.fill(view.fixed_color);
+    sub_priority.fill(-1);
+    for (unsigned layer = 0; layer < 5; ++layer) {
+        const unsigned bit = 1u << layer;
+        if (!(enabled & bit))
+            continue;
+        const bool to_main = main_enable & bit, to_sub = sub_enable & bit;
+        const bool main_clip = main_mask & bit, sub_clip = sub_mask & bit, windowed = masking & bit;
+        for (unsigned x = 0; x < 256; ++x) {
+            const Pixel candidate = layer == 4 ? objects[x] : view.sample_background_pixel(layer, int(x), y + 1);
+            if (candidate.priority < 0)
+                continue;
+            const bool masked = windowed && window[layer][x];
+            if (to_main && !(main_clip && masked) && candidate.priority > main_priority[x]) {
+                main_color[x] = candidate.color;
+                main_priority[x] = candidate.priority;
+                main_layer[x] = uint8_t(candidate.layer);
+                main_math[x] = candidate.math;
+            }
+            if (to_sub && !(sub_clip && masked) && candidate.priority > sub_priority[x]) {
+                sub_color[x] = candidate.color;
+                sub_priority[x] = candidate.priority;
+            }
+        }
+    }
+
+    // Brightness is one of sixteen fixed scalings of a five-bit channel.
+    const unsigned brightness = registers[0] & 15;
+    std::array<uint32_t, 32> component;
+    for (unsigned value = 0; value < 32; ++value) {
+        const auto scaled = (value * brightness + 7) / 15;
+        component[value] = (scaled << 3) | (scaled >> 2);
+    }
+    const auto affected = [](unsigned setting, bool inside) {
+        return setting == 3 || (setting == 1 && !inside) || (setting == 2 && inside);
+    };
+    const unsigned clip_setting = cgwsel >> 6, prevent_setting = (cgwsel >> 4) & 3;
+    for (unsigned x = 0; x < 256; ++x) {
+        const bool inside = color_window && window[5][x];
+        const bool clipped = affected(clip_setting, inside);
+        unsigned color = clipped ? 0 : main_color[x];
+        if (!affected(prevent_setting, inside) && main_math[x] && (cgadsub & (1u << main_layer[x]))) {
+            const unsigned other = (cgwsel & 2) ? sub_color[x] : view.fixed_color;
+            const bool half = (cgadsub & 0x40) && !clipped && (!(cgwsel & 2) || sub_priority[x] >= 0);
+            unsigned mixed = 0;
+            for (unsigned shift = 0; shift < 15; shift += 5) {
+                const int a = (color >> shift) & 31, b = (other >> shift) & 31;
+                int c = (cgadsub & 0x80) ? std::max(0, a - b) : (a + b);
+                if (half)
+                    c /= 2;
+                mixed |= unsigned(std::min(31, c)) << shift;
+            }
+            color = mixed;
+        }
+        output[x] = 0xff000000 | (component[color & 31] << 16) | (component[(color >> 5) & 31] << 8) |
+                    component[(color >> 10) & 31];
+    }
+}
+
 uint32_t GameSceneRenderer::compose_presentation_pixel(const SceneReadView &view, int x, unsigned y,
                                                        const Pixel &object, bool margin) {
     const auto pixel = presentation_effects_enabled_ ? compose_pixel<true>(view, x, y, object, margin)
@@ -526,9 +620,12 @@ void SnesBus::render_scanline(unsigned y) {
         std::array<PpuPixel, 256> objects{};
         if ((ppu_registers_[0x2c] | ppu_registers_[0x2d]) & 16)
             sprite_status_ |= view.sample_sprite_pixels(y, objects, 0);
-        for (unsigned x = 0; x < 256; ++x)
-            native_framebuffer[y * 256 + x] =
-                scene_renderer_.compose_presentation_pixel(view, x, y, objects[x], false);
+        if (fast_native_compose_ && scene_renderer_.native_fast_compose_available())
+            GameSceneRenderer::compose_native_scanline(view, y, objects, native_framebuffer.data() + y * 256);
+        else
+            for (unsigned x = 0; x < 256; ++x)
+                native_framebuffer[y * 256 + x] =
+                    scene_renderer_.compose_presentation_pixel(view, x, y, objects[x], false);
     }
     scene_renderer_.render_presentation_margins(view, y);
     // Source capture changes sampling policy temporarily; it has its own tile cache.

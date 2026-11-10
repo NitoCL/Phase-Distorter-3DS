@@ -237,6 +237,8 @@ class SnesBus {
     // for every frame; only the picture of skipped frames is not produced.
     // No game code reads the PPU sprite status latch ($213E) the renderer sets.
     void set_render_frame_skip(unsigned skip) { render_frame_skip_ = skip; }
+    // Whole-scanline native compositor (identical output; for tests/benchmarks).
+    void set_fast_native_compose(bool enabled) { fast_native_compose_ = enabled; }
     unsigned render_frame_skip() const { return render_frame_skip_; }
     // Whether the most recently completed frame's picture was rendered.
     bool last_frame_rendered() const { return last_frame_rendered_; }
@@ -251,6 +253,7 @@ class SnesBus {
     friend struct RuntimeStateAudit;
     bool lazy_audio_sync_ = false;
     unsigned render_frame_skip_ = 0;
+    bool fast_native_compose_ = true;
     bool render_this_frame_ = true;
     bool last_frame_rendered_ = true;
     unsigned pending_audio_clocks_ = 0;

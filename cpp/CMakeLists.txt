@@ -354,7 +354,7 @@ if(EB_BUILD_TESTS)
                       dialogue_register_tests dialogue_native_execution_tests
                       dialogue_transfer_tests credits_state_tests cutscene_native_execution_tests
                       battle_targeting_tests battle_targeting_native_tests lazy_audio_sync_tests
-                      render_frame_skip_tests)
+                      render_frame_skip_tests ppu_compose_fast_tests)
         add_executable(${game_test} tests/${game_test}.cpp)
         target_link_libraries(${game_test} PRIVATE eb_core eb_dsp)
         add_test(NAME ${game_test} COMMAND ${game_test})

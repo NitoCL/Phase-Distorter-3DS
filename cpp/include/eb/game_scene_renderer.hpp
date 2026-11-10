@@ -118,6 +118,13 @@ class GameSceneRenderer {
     SpriteSnapshotDiagnostics sprite_snapshot_diagnostics() const { return sprite_snapshot_counts_; }
     // Includes queued, built, uploaded and displayed owners for bridge GC.
     std::vector<std::uint64_t> host_sprite_generations() const;
+    // Whole-scanline equivalent of compose_presentation_pixel(..., margin=false)
+    // for x = 0..255 while presentation effects are off. Window membership and
+    // brightness are resolved once per line and layers are composed in the same
+    // order, so every pixel is identical (see tests/ppu_compose_fast_tests).
+    bool native_fast_compose_available() const { return !presentation_effects_enabled_; }
+    static void compose_native_scanline(const SceneReadView &view, unsigned y,
+                                        const std::array<PpuPixel, 256> &objects, uint32_t *output);
     uint32_t compose_presentation_pixel(const SceneReadView &view, int x, unsigned y, const PpuPixel &object,
                                         bool margin);
     void render_presentation_margins(const SceneReadView &view, unsigned y);
