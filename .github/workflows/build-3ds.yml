@@ -12,21 +12,124 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Ensure CMake support for devkitARM
+      - name: Ensure CMake support and CIA tools
         run: |
           dkp-pacman -Sy --noconfirm --needed devkitarm-cmake 3ds-cmake || true
-          apt-get update && apt-get install -y --no-install-recommends cmake ninja-build
+          apt-get update && apt-get install -y --no-install-recommends cmake ninja-build curl unzip python3 ca-certificates
+          curl -fsSL -o /tmp/makerom.zip https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.18.4/makerom-v0.18.4-ubuntu_x86_64.zip
+          unzip -o /tmp/makerom.zip -d /usr/local/bin
+          chmod +x /usr/local/bin/makerom
+          if curl -fsSL -o /tmp/bannertool.zip "https://web.archive.org/web/2/https://github.com/Steveice10/bannertool/releases/download/1.1.0/bannertool.zip"; then
+            unzip -o -j /tmp/bannertool.zip linux-x86_64/bannertool -d /usr/local/bin || true
+            chmod +x /usr/local/bin/bannertool || true
+          fi
 
       - name: Configure
-        run: >
-          cmake -S platform/3ds -B build-3ds -G Ninja
-          -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake
-          -DCMAKE_BUILD_TYPE=Release
+        run: |
+          cmake -S platform/3ds -B build-3ds -G Ninja -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/3DS.cmake -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build-3ds --parallel
 
+      - name: Package CIA
+        run: |
+          python3 -c '
+          import pathlib, wave
+          rsf = """BasicInfo:
+            Title                   : "Phase Distorter 3DS"
+            CompanyCode             : "00"
+            ProductCode             : "CTR-P-PD3D"
+            ContentType             : Application
+            Logo                    : Nintendo
+          TitleInfo:
+            UniqueId                : 0xF8D31
+            Category                : Application
+          Option:
+            UseOnSD                 : true
+            FreeProductCode         : true
+            MediaFootprint          : false
+            EnableCrypt             : false
+            EnableCompress          : true
+          AccessControlInfo:
+            CoreVersion             : 2
+            DescVersion             : 2
+            ReleaseKernelMajor      : "02"
+            ReleaseKernelMinor      : "33"
+            UseExtSaveData          : false
+            FileSystemAccess:
+              - DirectSdmc
+            MemoryType              : Application
+            SystemMode              : 80MB
+            SystemModeExt           : 124MB
+            IdealProcessor          : 0
+            AffinityMask            : 1
+            Priority                : 16
+            MaxCpu                  : 0x9E
+            HandleTableSize         : 0x200
+            DisableDebug            : false
+            EnableForceDebug        : false
+            CanWriteSharedPage      : true
+            CanUsePrivilegedPriority: false
+            CanUseNonAlphabetAndNumber: true
+            PermitMainFunctionArgument: true
+            CanShareDeviceMemory    : true
+            RunnableOnSleep         : false
+            SpecialMemoryArrange    : true
+            ResourceLimitCategory   : APPLICATION
+            ServiceAccessControl:
+              - "$hioFIO"
+              - "$hostio0"
+              - "$hostio1"
+              - "ac:u"
+              - "apt:U"
+              - "cam:u"
+              - "cecd:u"
+              - "cfg:u"
+              - "csnd:SND"
+              - "dsp::DSP"
+              - "fs:USER"
+              - "gsp::Gpu"
+              - "gsp::Lcd"
+              - "hid:USER"
+              - "http:C"
+              - "ir:USER"
+              - "ir:rst"
+              - "ir:u"
+              - "ldr:ro"
+              - "mic:u"
+              - "ndm:u"
+              - "news:u"
+              - "nim:aoc"
+              - "nwm::UDS"
+              - "ptm:sysm"
+              - "ptm:u"
+              - "pxi:dev"
+              - "soc:U"
+              - "ssl:C"
+              - "y2r:u"
+          SystemControlInfo:
+            SaveDataSize            : 0KB
+            RemasterVersion         : 0
+            StackSize               : 0x100000
+          """
+          pathlib.Path("build-3ds/cia.rsf").write_text(rsf)
+          with wave.open("build-3ds/silent.wav", "wb") as f:
+              f.setnchannels(1)
+              f.setsampwidth(2)
+              f.setframerate(22050)
+              f.writeframes(b"\x00\x00" * 22050)
+          '
+          BANNER_ARG=""
+          if command -v bannertool >/dev/null 2>&1 && bannertool makebanner -i platform/3ds/assets/icon.png -a build-3ds/silent.wav -o build-3ds/banner.bnr; then
+            BANNER_ARG="-banner build-3ds/banner.bnr"
+          fi
+          ELF_FILE="build-3ds/phase-distorter-3ds.elf"
+          if [ ! -f "$ELF_FILE" ]; then ELF_FILE="build-3ds/phase-distorter-3ds"; fi
+          makerom -f cia -o build-3ds/phase-distorter-3ds.cia -elf "$ELF_FILE" -rsf build-3ds/cia.rsf -icon build-3ds/phase-distorter-3ds.smdh $BANNER_ARG -DAPP_ENCRYPTED=false
+
       - uses: actions/upload-artifact@v4
         with:
           name: phase-distorter-3ds
-          path: build-3ds/phase-distorter-3ds.3dsx
+          path: |
+            build-3ds/phase-distorter-3ds.3dsx
+            build-3ds/phase-distorter-3ds.cia
