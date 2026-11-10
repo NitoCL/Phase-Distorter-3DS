@@ -8,7 +8,7 @@
 //   sdmc:/3ds/phase-distorter/<your rom>.sfc     imported on first run if no pack
 //   sdmc:/3ds/phase-distorter/earthbound.srm     battery save (8 KiB, same as PC)
 #include <3ds.h>
-
+#include <3ds/services/sdmc.h>
 #include "audio_3ds.hpp"
 #include "bottom_ui.hpp"
 #include "canvas.hpp"
