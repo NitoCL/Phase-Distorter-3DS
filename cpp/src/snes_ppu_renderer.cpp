@@ -180,6 +180,77 @@ PpuPixel SceneReadView::sample_background_pixel_miss(unsigned background_layer, 
     return pixel(color);
 }
 
+// Mirrors sample_background_pixel_miss for its row-cached case (mode 0/1, no
+// effective mosaic, no scene): one tile-row decode per 8-pixel cell, written
+// straight to compact per-pixel arrays. Every expression keeps the scalar
+// sampler's order and masking so each pixel is identical.
+bool SceneReadView::sample_background_line(unsigned background_layer, unsigned y, uint16_t *color_out,
+                                           int8_t *priority_out) const {
+    const unsigned mode = ppu_registers[5] & 7;
+    if (mode > 1)
+        return false;
+    const unsigned mosaic = (ppu_registers[6] >> 4) + 1;
+    if ((ppu_registers[6] & (1 << background_layer)) && mosaic != 1)
+        return false;
+    const unsigned depth = background_color_depths[mode][background_layer];
+    if (!depth) {
+        std::fill_n(priority_out, 256, int8_t(-1));
+        return true;
+    }
+    const unsigned tile_size = (ppu_registers[5] & (0x10 << background_layer)) ? 16 : 8;
+    const unsigned map = ppu_registers[7 + background_layer], width = (map & 1) ? 64 : 32,
+                   height = (map & 2) ? 64 : 32;
+    const unsigned base =
+        ((ppu_registers[0x0b + background_layer / 2] >> ((background_layer & 1) * 4)) & 15) * 8192;
+    const unsigned scrolled_y = (y + background_scroll_y[background_layer]) & 1023;
+    const unsigned scroll_x = background_scroll_x[background_layer];
+    int priorities[2];
+    if (mode == 0) {
+        constexpr int table[4][2] = {{7, 10}, {6, 9}, {1, 4}, {0, 3}};
+        priorities[0] = table[background_layer][0];
+        priorities[1] = table[background_layer][1];
+    } else {
+        constexpr int table[3][2] = {{6, 9}, {5, 8}, {0, 2}};
+        priorities[0] = table[background_layer][0];
+        priorities[1] = table[background_layer][1];
+        if (background_layer == 2 && (ppu_registers[5] & 8))
+            priorities[1] = 11;
+    }
+    const unsigned palette_layer_offset = mode == 0 ? background_layer * 32 : 0;
+    unsigned x = 0;
+    while (x < 256) {
+        // First pixel of this 8-pixel cell sets the tile, as in the scalar path.
+        const unsigned scrolled_x = (x + scroll_x) & 1023;
+        const unsigned lane = (x + scroll_x) & 7;
+        const unsigned tile_x = scrolled_x / tile_size, tile_y = scrolled_y / tile_size;
+        const unsigned map_x = tile_x % width, map_y = tile_y % height;
+        const unsigned screen = (map_x / 32) + (map_y / 32) * (width / 32);
+        const unsigned entry =
+            vram_word(((map & 0xfc) << 9) + screen * 2048 + ((map_y % 32) * 32 + (map_x % 32)) * 2);
+        unsigned tile_pixel_x = scrolled_x % tile_size, tile_pixel_y = scrolled_y % tile_size;
+        if (entry & 0x4000)
+            tile_pixel_x = tile_size - 1 - tile_pixel_x;
+        if (entry & 0x8000)
+            tile_pixel_y = tile_size - 1 - tile_pixel_y;
+        const unsigned tile = ((entry & 1023) + (tile_pixel_x / 8) + (tile_pixel_y / 8) * 16) & 1023;
+        const unsigned palette_base = ((entry >> 10) & 7) * (1u << depth) + palette_layer_offset;
+        const int priority = priorities[(entry & 0x2000) ? 1 : 0];
+        const auto decoded =
+            detail::decode_planar_row(video_ram, base + tile * depth * 8 + (tile_pixel_y % 8) * 2, depth);
+        const bool flip = entry & 0x4000;
+        for (unsigned col = lane; col < 8 && x < 256; ++col, ++x) {
+            const unsigned color = unsigned(decoded >> ((flip ? 7 - col : col) * 8)) & 255;
+            if (!color) {
+                priority_out[x] = -1;
+                continue;
+            }
+            color_out[x] = palette(color + palette_base);
+            priority_out[x] = int8_t(priority);
+        }
+    }
+    return true;
+}
+
 // Affine rendering keeps the hardware's fixed-point truncations in the
 // intermediate products. Algebraically regrouping these expressions can move
 // pixels because clearing the low bits is not distributive over addition.
@@ -549,6 +620,28 @@ void GameSceneRenderer::compose_native_scanline(const SceneReadView &view, unsig
             continue;
         const bool to_main = main_enable & bit, to_sub = sub_enable & bit;
         const bool main_clip = main_mask & bit, sub_clip = sub_mask & bit, windowed = masking & bit;
+        // Fast whole-line path for ordinary tiled backgrounds.
+        std::array<uint16_t, 256> line_color;
+        std::array<int8_t, 256> line_priority;
+        if (layer < 4 && view.sample_background_line(layer, y + 1, line_color.data(), line_priority.data())) {
+            for (unsigned x = 0; x < 256; ++x) {
+                const int priority = line_priority[x];
+                if (priority < 0)
+                    continue;
+                const bool masked = windowed && window[layer][x];
+                if (to_main && !(main_clip && masked) && priority > main_priority[x]) {
+                    main_color[x] = line_color[x];
+                    main_priority[x] = priority;
+                    main_layer[x] = uint8_t(layer);
+                    main_math[x] = true;
+                }
+                if (to_sub && !(sub_clip && masked) && priority > sub_priority[x]) {
+                    sub_color[x] = line_color[x];
+                    sub_priority[x] = priority;
+                }
+            }
+            continue;
+        }
         for (unsigned x = 0; x < 256; ++x) {
             const Pixel candidate = layer == 4 ? objects[x] : view.sample_background_pixel(layer, int(x), y + 1);
             if (candidate.priority < 0)

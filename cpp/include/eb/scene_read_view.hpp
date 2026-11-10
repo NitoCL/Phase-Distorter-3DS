@@ -84,6 +84,11 @@ struct SceneReadView {
         }
         return sample_background_pixel_miss(layer, x, y, scene);
     }
+    // Whole-line equivalent of sample_background_pixel(layer, x, y) for
+    // x = 0..255 without a presentation scene, for modes 0/1 without mosaic.
+    // Writes color and priority (-1 = transparent); returns false (writing
+    // nothing) for any configuration it does not cover.
+    bool sample_background_line(unsigned layer, unsigned y, uint16_t *color, int8_t *priority) const;
     PpuPixel sample_mode7_pixel(unsigned layer, int x, unsigned y) const;
     bool layer_window_contains(unsigned layer, unsigned x) const;
     // Returns overflow bits. Only the bus's native pass may commit them.

@@ -67,7 +67,9 @@ std::vector<std::uint32_t> render(std::uint32_t seed, bool fast) {
 }
 
 int bench(int frames) {
+    const bool only_fast = std::getenv("PPU_BENCH_FAST_ONLY") != nullptr;
     for (bool fast : {false, true}) {
+        if (only_fast && !fast) continue;
         std::vector<std::uint8_t> rom(0x300000);
         eb::SnesBus bus(rom);
         bus.set_fast_native_compose(fast);
