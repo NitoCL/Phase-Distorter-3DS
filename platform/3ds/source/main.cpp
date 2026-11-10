@@ -247,7 +247,11 @@ int run(const eb::GameAssets &program) {
     Audio3ds audio;
     ui_state.audio_available = audio.available();
     BottomUi ui;
-    std::optional<UiState> drawn_ui; // Bottom screen is single-buffered.
+    // The bottom screen is double-buffered: a changed UI is drawn into the
+    // hidden buffer on two consecutive frames (once per buffer), so the LCD
+    // never scans a half-cleared screen.
+    std::optional<UiState> drawn_ui;
+    unsigned bottom_pending = 2;
 
     unsigned clear_top = 2;    // Letterbox clears pending (one per buffer).
     unsigned last_width = 0;
@@ -317,9 +321,13 @@ int run(const eb::GameAssets &program) {
         if (frame_counter % 10 == 0) ui_state.party = session.party_status();
         ui_state.widescreen = widescreen;
         if (!drawn_ui || !(*drawn_ui == ui_state)) {
-            auto bottom = bottom_canvas();
-            ui.draw(bottom, ui_state);
             drawn_ui = ui_state;
+            bottom_pending = 2;
+        }
+        if (bottom_pending) {
+            auto bottom = bottom_canvas(); // Current back buffer.
+            ui.draw(bottom, *drawn_ui);
+            --bottom_pending;
         }
 
         // Performance window (1 s).
@@ -358,7 +366,6 @@ int run(const eb::GameAssets &program) {
 int main() {
     osSetSpeedupEnable(true); // New 3DS: 804 MHz and L2 cache.
     gfxInitDefault();
-    gfxSetDoubleBuffering(GFX_BOTTOM, false);
     mkdir("sdmc:/3ds", 0777);
     mkdir(base_dir.c_str(), 0777);
 
