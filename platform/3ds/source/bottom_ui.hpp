@@ -29,6 +29,7 @@ struct UiState {
     // Game logic is frame_ms - render - audio.
     int render_ms_tenths = 0, audio_ms_tenths = 0, present_ms_tenths = 0;
     std::string notice;      // One-line message (save written, errors...).
+    std::string build_info;  // e.g. "804 MHz · 750c515": measured clock + commit.
     bool operator==(const UiState &) const = default;
 };
 

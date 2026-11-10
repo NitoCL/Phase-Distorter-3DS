@@ -29,6 +29,7 @@ int main(int argc, char **argv) {
     state.party[3] = {4, 20, 140, 151, 188, 190, 0};
     state.fps_tenths = 598;
     state.frame_ms_tenths = 142;
+    state.build_info = "804 MHz  750c515";
     state.render_ms_tenths = 221;
     state.audio_ms_tenths = 183;
     state.present_ms_tenths = 31;

@@ -38,6 +38,28 @@ namespace {
 using namespace pd3ds;
 
 const std::string base_dir = "sdmc:/3ds/phase-distorter/";
+#ifndef PD3DS_BUILD
+#define PD3DS_BUILD "local"
+#endif
+
+// Measures the real ARM11 clock: a register-only loop of known cycle count
+// timed against the fixed 268 MHz system tick. A New 3DS without the 804 MHz
+// exheader flag (or speedup) shows "268 MHz" here.
+int measured_cpu_mhz() {
+    constexpr u32 iterations = 200'000;
+    u32 counter = iterations, sink = 0;
+    const u64 start = svcGetSystemTick();
+    // 32 dependent single-cycle ADDs per iteration dominate the loop, so the
+    // cycle count is ~34 per iteration whatever the branch costs.
+    asm volatile("1:\n\t.rept 32\n\tadd %1, %1, #1\n\t.endr\n\tsubs %0, %0, #1\n\tbne 1b"
+                 : "+r"(counter), "+r"(sink)
+                 :
+                 : "cc");
+    const u64 ticks = svcGetSystemTick() - start;
+    const double cycles = 34.0 * iterations;
+    const double mhz = cycles / (double(ticks) / SYSCLOCK_ARM11) / 1e6;
+    return mhz > 500 ? 804 : 268;
+}
 constexpr double snes_frame_rate = 60.0988;
 constexpr unsigned save_check_interval = 60; // Frames between SRAM comparisons.
 
@@ -219,6 +241,7 @@ int run(const eb::GameAssets &program) {
     const std::string save_path = base_dir + pack_name(version) + ".srm";
     UiState ui_state;
     ui_state.version = version;
+    ui_state.build_info = std::to_string(measured_cpu_mhz()) + " MHz  " PD3DS_BUILD;
     unsigned notice_frames = 0;
     if (auto save = read_file(save_path)) {
         if (save->size() == session.save_memory().size()) {

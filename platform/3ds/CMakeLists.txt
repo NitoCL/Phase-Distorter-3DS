@@ -35,6 +35,9 @@ target_include_directories(phase-distorter-3ds PRIVATE source)
 target_link_libraries(phase-distorter-3ds PRIVATE
     eb_session eb_assets eb_native_asset_profiles ctru m)
 target_compile_options(phase-distorter-3ds PRIVATE -Wall -Wextra)
+# Shown on the bottom screen so a running build can be matched to a commit.
+set(PD3DS_BUILD "local" CACHE STRING "Build identifier shown on screen")
+target_compile_definitions(phase-distorter-3ds PRIVATE PD3DS_BUILD="${PD3DS_BUILD}")
 
 ctr_generate_smdh(phase-distorter-3ds.smdh
     NAME "Phase Distorter 3DS"

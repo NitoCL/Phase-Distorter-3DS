@@ -66,7 +66,9 @@ void BottomUi::draw(Canvas &c, const UiState &state) const {
     c.clear(color::background);
     c.fill({0, 0, bottom_width, 24}, color::header);
     c.fill({0, 24, bottom_width, 1}, color::accent);
-    c.text(8, 7, state.version == eb::GameVersion::JP ? "Mother 2" : "EarthBound", color::text);
+    const int title_width =
+        c.text(8, 7, state.version == eb::GameVersion::JP ? "Mother 2" : "EarthBound", color::text);
+    if (!state.build_info.empty()) c.text(8 + title_width + 8, 7, state.build_info, color::dim);
     if (state.show_performance && state.fps_tenths > 0) {
         char perf[40];
         std::snprintf(perf, sizeof perf, "%d.%d fps  %d.%d ms", state.fps_tenths / 10, state.fps_tenths % 10,
