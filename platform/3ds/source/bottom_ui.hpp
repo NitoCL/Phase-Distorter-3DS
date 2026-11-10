@@ -25,6 +25,9 @@ struct UiState {
     bool audio_available = true;
     int fps_tenths = 0;     // Measured presentation rate x10.
     int frame_ms_tenths = 0; // Mean core time per frame x10.
+    // Breakdown x10 (ms per frame): PPU render, APU+DSP, frame copy to screen.
+    // Game logic is frame_ms - render - audio.
+    int render_ms_tenths = 0, audio_ms_tenths = 0, present_ms_tenths = 0;
     std::string notice;      // One-line message (save written, errors...).
     bool operator==(const UiState &) const = default;
 };

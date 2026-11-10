@@ -42,6 +42,21 @@ sdmc:/3ds/dspfirm.cdc                         ← para el audio (dúmpealo con D
 - Si la ROM tiene cabecera de 512 bytes (`.smc`) y no la reconoce, impórtala en la
   versión de PC (`--import-rom`) y copia el `.ebpak`.
 
+## CIA y New 3DS
+
+El `.cia` se arma con `platform/3ds/cia.rsf` (804 MHz, caché L2 y modo de 124 MB en
+New 3DS). **No uses `-desc` en makerom:** el preset reemplaza esa configuración por
+la de Old 3DS (268 MHz, sin L2). El `.3dsx` desde el Homebrew Launcher activa la
+velocidad con `osSetSpeedupEnable`.
+
+## Rendimiento
+
+Con *Mostrar rendimiento* activo, la pantalla inferior muestra fps, ms por frame y el
+desglose: **Juego** (lógica del CPU traducido), **Video** (PPU por scanline),
+**Audio** (SPC700 + DSP) y **Pant** (copia a la pantalla). El audio se sincroniza de
+forma perezosa (`GameSession::set_lazy_audio_sync`): mismo resultado bit a bit,
+verificado por `cpp/tests/lazy_audio_sync_tests.cpp`.
+
 ## Controles
 
 | 3DS | SNES |

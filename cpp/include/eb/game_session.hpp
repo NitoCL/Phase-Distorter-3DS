@@ -65,6 +65,9 @@ class GameSession {
     void observe_completed_frames(FrameObserver observer);
 
     std::vector<std::int16_t> take_audio_samples();
+    // Catch the APU up only at port accesses and frame ends (see SnesBus).
+    // Output is unchanged; it removes per-instruction APU dispatch overhead.
+    void set_lazy_audio_sync(bool enabled);
     // Playable members in party order. Reads work RAM only; never alters play.
     std::array<PartyMemberStatus, 4> party_status() const;
     std::span<std::uint8_t> save_memory();

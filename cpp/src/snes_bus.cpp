@@ -346,8 +346,11 @@ void SnesBus::write_byte(uint32_t address, uint8_t value) {
 uint8_t SnesBus::read_io_register(uint16_t address) {
     if (address >= 0x2100 && address <= 0x213f)
         return read_ppu_register(address);
-    if (address >= 0x2140 && address <= 0x217f)
+    if (address >= 0x2140 && address <= 0x217f) {
+        if (lazy_audio_sync_)
+            sync_audio();
         return audio_to_main_ports[address & 3];
+    }
     if (address == 0x2180) {
         auto value = work_ram[wram_address_];
         if (debug_read_wram)
@@ -427,6 +430,8 @@ void SnesBus::write_io_register(uint16_t address, uint8_t value) {
         return;
     }
     if (address >= 0x2140 && address <= 0x217f) {
+        if (lazy_audio_sync_)
+            sync_audio(); // The APU must observe the old value until now.
         main_to_audio_ports[address & 3] = value;
         return;
     }
@@ -756,8 +761,15 @@ void SnesBus::advance_clocks(unsigned clocks, bool pause_for_refresh) {
         // Render from the register state for this line before HDMA prepares
         // the following line's effects. Visible output rows start at line 1.
         if (old < 1112 && scanline_master_clock_ >= 1112 && scanline_index_ <= 224) {
-            if (scanline_index_ >= 1)
-                render_scanline(scanline_index_ - 1);
+            if (scanline_index_ >= 1) {
+                if (frame_profile::clock) {
+                    const auto start = frame_profile::clock();
+                    render_scanline(scanline_index_ - 1);
+                    frame_profile::render_ticks += frame_profile::clock() - start;
+                } else {
+                    render_scanline(scanline_index_ - 1);
+                }
+            }
             hdma_line();
         }
         if (scanline_master_clock_ == line_clocks) {
@@ -789,8 +801,13 @@ void SnesBus::advance_clocks(unsigned clocks, bool pause_for_refresh) {
                 irq_flag_ = true;
         }
     }
-    if (advance_audio_master_clocks)
+    if (lazy_audio_sync_) {
+        pending_audio_clocks_ += elapsed;
+        if (pending_audio_clocks_ >= (1u << 30))
+            sync_audio(); // Bound the backlog if nobody syncs for a long time.
+    } else if (advance_audio_master_clocks) {
         advance_audio_master_clocks(elapsed);
+    }
 }
 
 } // namespace eb

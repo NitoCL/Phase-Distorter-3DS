@@ -18,6 +18,15 @@
 
 namespace eb {
 struct SourceProfile;
+
+// Optional per-frame cost accounting for slow hosts (3DS). Inactive unless a
+// frontend installs a clock; hosts reset the counters when they sample them.
+namespace frame_profile {
+inline std::uint64_t (*clock)() = nullptr;
+inline std::uint64_t render_ticks = 0;
+inline std::uint64_t audio_ticks = 0;
+inline std::uint64_t audio_syncs = 0;
+} // namespace frame_profile
 struct FlashFilterContext;
 class MainCpu65816;
 class SnapshotArchive;
@@ -179,6 +188,30 @@ class SnesBus {
     std::array<uint8_t, 4> audio_to_main_ports{};
     std::array<uint8_t, 4> main_to_audio_ports{};
     std::function<void(unsigned master_clocks)> advance_audio_master_clocks;
+    // Lazy APU synchronization. The CPU and APU interact only through the
+    // $2140-$217F ports, so elapsed time is accumulated and the APU catches up
+    // immediately before any port access and whenever sync_audio() is called.
+    // The APU's catch-up loop depends only on cumulative clocks, so its state at
+    // every port access is identical to per-instruction forwarding. Owners
+    // that enable this must call sync_audio() before reading audio output.
+    void set_lazy_audio_sync(bool enabled) {
+        sync_audio();
+        lazy_audio_sync_ = enabled;
+    }
+    void sync_audio() {
+        if (!pending_audio_clocks_) return;
+        const unsigned clocks = pending_audio_clocks_;
+        pending_audio_clocks_ = 0;
+        if (!advance_audio_master_clocks) return;
+        if (frame_profile::clock) {
+            const auto start = frame_profile::clock();
+            advance_audio_master_clocks(clocks);
+            frame_profile::audio_ticks += frame_profile::clock() - start;
+            ++frame_profile::audio_syncs;
+        } else {
+            advance_audio_master_clocks(clocks);
+        }
+    }
     std::array<uint32_t, 256 * 224> native_framebuffer{};
     uint64_t completed_frames = 0;
     unsigned scanline_index() const { return scanline_index_; }
@@ -188,6 +221,8 @@ class SnesBus {
 
   private:
     friend struct RuntimeStateAudit;
+    bool lazy_audio_sync_ = false;
+    unsigned pending_audio_clocks_ = 0;
     const GameVersion game_version_;
     const bool restore_threed_npcs_;
     const SourceProfile *source_profile_;

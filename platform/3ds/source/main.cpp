@@ -15,6 +15,7 @@
 #include "eb/asset_store.hpp"
 #include "eb/game_session.hpp"
 #include "eb/logical_clock_policy.hpp"
+#include "eb/snes_bus.hpp"
 #include "generated_assets.hpp"
 
 #include <algorithm>
@@ -209,6 +210,11 @@ int run(const eb::GameAssets &program) {
     eb::GameSession session(program.image, version, /*enhanced_gameplay_timing=*/true);
     session.set_logical_clock_policy(eb::LogicalClockPolicy::ActorFrames);
     session.enable_native_sprite_runtime();
+    // Catch the APU up only at port accesses and frame ends: same output,
+    // without dispatching to it after every emulated CPU instruction.
+    session.set_lazy_audio_sync(true);
+    // Per-frame cost breakdown shown on the bottom screen.
+    eb::frame_profile::clock = [] { return std::uint64_t(svcGetSystemTick()); };
 
     const std::string save_path = base_dir + pack_name(version) + ".srm";
     UiState ui_state;
@@ -248,6 +254,7 @@ int run(const eb::GameAssets &program) {
     u64 window_start = osGetTime();
     unsigned window_frames = 0;
     u64 window_core_ticks = 0;
+    u64 window_present_ticks = 0;
     std::uint64_t frame_counter = 0;
     bool touching = false;
 
@@ -287,6 +294,7 @@ int run(const eb::GameAssets &program) {
         audio.queue(samples);
 
         // Top screen: the game, letterboxed into 400x240.
+        const u64 present_start = svcGetSystemTick();
         auto top = top_canvas();
         const auto frame = session.presentation_frame();
         const unsigned width = frame.width ? frame.width : 256;
@@ -300,6 +308,7 @@ int run(const eb::GameAssets &program) {
             --clear_top;
         }
         top.blit_centered(frame.pixels, int(width), height);
+        window_present_ticks += svcGetSystemTick() - present_start;
 
         // Bottom screen: redraw only when something visible changed.
         ++frame_counter;
@@ -319,10 +328,19 @@ int run(const eb::GameAssets &program) {
         if (now - window_start >= 1000) {
             ui_state.fps_tenths = int(window_frames * 10000 / (now - window_start));
             // ticks / frames / (ticks per ms), scaled by 10.
-            ui_state.frame_ms_tenths = int(window_core_ticks * 10000 / (u64(SYSCLOCK_ARM11) * window_frames));
+            const auto per_frame = [&](u64 ticks) {
+                return int(ticks * 10000 / (u64(SYSCLOCK_ARM11) * window_frames));
+            };
+            ui_state.frame_ms_tenths = per_frame(window_core_ticks);
+            ui_state.render_ms_tenths = per_frame(eb::frame_profile::render_ticks);
+            ui_state.audio_ms_tenths = per_frame(eb::frame_profile::audio_ticks);
+            ui_state.present_ms_tenths = per_frame(window_present_ticks);
+            eb::frame_profile::render_ticks = eb::frame_profile::audio_ticks = 0;
+            eb::frame_profile::audio_syncs = 0;
             window_start = now;
             window_frames = 0;
             window_core_ticks = 0;
+            window_present_ticks = 0;
         }
 
         gfxFlushBuffers();

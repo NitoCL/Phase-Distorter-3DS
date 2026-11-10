@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <string>
 
 namespace pd3ds {
 namespace {
@@ -78,7 +79,15 @@ void BottomUi::draw(Canvas &c, const UiState &state) const {
     else
         draw_party(c, state);
 
-    if (!state.notice.empty()) c.text_centered({0, 180, bottom_width, 14}, state.notice, color::accent);
+    if (!state.notice.empty()) {
+        c.text_centered({0, 180, bottom_width, 14}, state.notice, color::accent);
+    } else if (state.show_performance && state.fps_tenths > 0 && !options_open_) {
+        const auto tenths = [](int v) { return std::to_string(v / 10) + "." + std::to_string(v % 10); };
+        const int logic = std::max(0, state.frame_ms_tenths - state.render_ms_tenths - state.audio_ms_tenths);
+        const auto line = "Juego " + tenths(logic) + "  Video " + tenths(state.render_ms_tenths) + "  Audio " +
+                          tenths(state.audio_ms_tenths) + "  Pant " + tenths(state.present_ms_tenths) + " ms";
+        c.text_centered({0, 180, bottom_width, 14}, line, color::dim);
+    }
 
     if (!options_open_) {
         draw_button(c, talk_button, "Hablar", "L");

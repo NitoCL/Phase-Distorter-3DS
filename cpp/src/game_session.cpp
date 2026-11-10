@@ -66,9 +66,11 @@ std::uint64_t GameSession::advance_frame(std::uint16_t buttons, std::uint64_t st
                  (!step_limit || completed_steps < step_limit));
     } catch (...) {
         state.steps = completed_steps; // Preserve partial progress for diagnostics.
+        state.hardware.sync_audio();
         throw;
     }
     state.steps = completed_steps;
+    state.hardware.sync_audio(); // Audio output and snapshots see a caught-up APU.
     return state.hardware.completed_frames - previous_frame;
 }
 
@@ -103,6 +105,9 @@ void GameSession::enable_host_sprite_resources(bool enabled) {
 void GameSession::enable_native_sprite_runtime(bool enabled) {
     state_->hardware.enable_native_sprite_runtime(enabled, enabled);
     state_->main_cpu.set_world_preload_width(enabled ? state_->hardware.presentation_width() : 256);
+}
+void GameSession::set_lazy_audio_sync(bool enabled) {
+    state_->hardware.set_lazy_audio_sync(enabled);
 }
 void GameSession::set_logical_clock_policy(LogicalClockPolicy policy) {
     state_->hardware.set_logical_clock_policy(policy);

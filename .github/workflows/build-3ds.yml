@@ -39,30 +39,6 @@ jobs:
           import pathlib, textwrap, wave
           from PIL import Image
 
-          rsf = textwrap.dedent("""\
-            BasicInfo:
-              Title                   : "Phase Distorter 3DS"
-              CompanyCode             : "00"
-              ProductCode             : "CTR-P-PD3D"
-              ContentType             : Application
-              Logo                    : Nintendo
-            TitleInfo:
-              UniqueId                : 0xF8D31
-              Category                : Application
-            Option:
-              UseOnSD                 : true
-              FreeProductCode         : true
-              EnableCrypt             : false
-              EnableCompress          : true
-            AccessControlInfo:
-              FileSystemAccess:
-                - DirectSdmc
-            SystemControlInfo:
-              SaveDataSize            : 0KB
-              RemasterVersion         : 0
-              StackSize               : 0x100000
-          """)
-          pathlib.Path("build-3ds/cia.rsf").write_text(rsf)
 
           with wave.open("build-3ds/silent.wav", "wb") as f:
               f.setnchannels(1)
@@ -91,7 +67,9 @@ jobs:
 
           ELF_FILE="build-3ds/phase-distorter-3ds.elf"
           if [ ! -f "$ELF_FILE" ]; then ELF_FILE="build-3ds/phase-distorter-3ds"; fi
-          makerom -f cia -o build-3ds/phase-distorter-3ds.cia -elf "$ELF_FILE" -rsf build-3ds/cia.rsf -desc app:4 -icon build-3ds/phase-distorter-3ds.smdh -banner build-3ds/banner.bnr -DAPP_ENCRYPTED=false
+          # No -desc preset: it would replace the RSF's New 3DS settings
+          # (804 MHz, L2 cache) with Old 3DS ones. See platform/3ds/cia.rsf.
+          makerom -f cia -o build-3ds/phase-distorter-3ds.cia -target t -exefslogo -elf "$ELF_FILE" -rsf platform/3ds/cia.rsf -icon build-3ds/phase-distorter-3ds.smdh -banner build-3ds/banner.bnr
 
       - uses: actions/upload-artifact@v4
         with:

@@ -29,9 +29,18 @@ int main(int argc, char **argv) {
     state.party[3] = {4, 20, 140, 151, 188, 190, 0};
     state.fps_tenths = 598;
     state.frame_ms_tenths = 142;
+    state.render_ms_tenths = 221;
+    state.audio_ms_tenths = 183;
+    state.present_ms_tenths = 31;
+    BottomUi ui;
+    {
+        std::vector<std::uint8_t> perf(bottom_width * screen_height * 3);
+        Canvas perf_canvas(perf.data(), bottom_width);
+        ui.draw(perf_canvas, state);
+        write_ppm((out + "/bottom_perf.ppm").c_str(), perf, bottom_width);
+    }
     state.notice = "Partida guardada en la SD";
 
-    BottomUi ui;
     std::vector<std::uint8_t> bottom(bottom_width * screen_height * 3);
     Canvas canvas(bottom.data(), bottom_width);
     ui.draw(canvas, state);
