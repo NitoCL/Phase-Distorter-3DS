@@ -8,7 +8,7 @@
 //   sdmc:/3ds/phase-distorter/<your rom>.sfc     imported on first run if no pack
 //   sdmc:/3ds/phase-distorter/earthbound.srm     battery save (8 KiB, same as PC)
 #include <3ds.h>
-#include <3ds/services/sdmc.h>
+
 #include "audio_3ds.hpp"
 #include "bottom_ui.hpp"
 #include "canvas.hpp"
@@ -341,13 +341,6 @@ int main() {
     osSetSpeedupEnable(true); // New 3DS: 804 MHz and L2 cache.
     gfxInitDefault();
     gfxSetDoubleBuffering(GFX_BOTTOM, false);
-
-    // CRÍTICO: Inicializar el montaje de la tarjeta SD para formato .cia
-    if (R_FAILED(sdmcInit())) {
-        gfxExit();
-        return 1;
-    }
-
     mkdir("sdmc:/3ds", 0777);
     mkdir(base_dir.c_str(), 0777);
 
@@ -370,9 +363,6 @@ int main() {
         wait_for_start_then_exit(lines);
         result = 1;
     }
-
-    // Desmontar la SD y salir limpiamente
-    sdmcExit();
     gfxExit();
     return result;
 }
