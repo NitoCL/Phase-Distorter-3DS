@@ -25,6 +25,8 @@ set(PD_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 set(EB_BUILD_FRONTEND OFF CACHE BOOL "" FORCE)
 set(EB_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(EB_PREGENERATED_DIR "${PD_ROOT}/generated" CACHE PATH "" FORCE)
+# One-byte phase markers in the core's hot paths for the on-device sampler.
+add_compile_definitions(EB_PHASE_PROFILE=1)
 add_subdirectory("${PD_ROOT}/cpp" core EXCLUDE_FROM_ALL)
 
 add_executable(phase-distorter-3ds

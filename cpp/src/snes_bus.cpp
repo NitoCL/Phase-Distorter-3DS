@@ -762,6 +762,7 @@ void SnesBus::advance_clocks(unsigned clocks, bool pause_for_refresh) {
         // the following line's effects. Visible output rows start at line 1.
         if (old < 1112 && scanline_master_clock_ >= 1112 && scanline_index_ <= 224) {
             if (scanline_index_ >= 1 && render_this_frame_) {
+                frame_profile::Scope phase_scope(frame_profile::Video);
                 if (frame_profile::clock) {
                     const auto start = frame_profile::clock();
                     render_scanline(scanline_index_ - 1);

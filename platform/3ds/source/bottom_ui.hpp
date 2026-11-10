@@ -22,6 +22,12 @@ struct UiState {
     eb::GameVersion version = eb::GameVersion::US;
     bool widescreen = false;
     bool show_performance = true;
+    bool profile_detail = false; // Sampling profile replaces the party panel.
+    // Sampling profile, indexed by eb::frame_profile::Phase.
+    std::array<std::uint16_t, 9> phase_ms_tenths{};
+    std::array<std::uint8_t, 9> phase_percent{};
+    int kinstr_per_frame = 0; // Emulated 65816 instructions per frame, thousands.
+    int ns_per_instr = 0;     // Mean game-loop time per emulated instruction.
     bool original_timing = true; // Saved setting; takes effect on next start.
     unsigned frame_skip = 1;     // Video frames skipped per rendered frame.
     bool audio_available = true;
@@ -56,6 +62,7 @@ class BottomUi {
   private:
     void draw_party(Canvas &canvas, const UiState &state) const;
     void draw_options(Canvas &canvas, const UiState &state) const;
+    void draw_profile(Canvas &canvas, const UiState &state) const;
     bool options_open_ = false;
 };
 

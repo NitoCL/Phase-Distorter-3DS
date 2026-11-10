@@ -96,6 +96,45 @@ const char *pack_name(eb::GameVersion version) {
     return version == eb::GameVersion::JP ? "mother2" : "earthbound";
 }
 
+// -------------------------------------------------------------- profiler --
+
+// Samples eb::frame_profile::phase ~4000 times per second from another core.
+// The main thread only stores one byte per phase change, so the measurement
+// barely perturbs what it measures.
+struct PhaseSampler {
+    volatile bool running = false;
+    volatile u32 counts[eb::frame_profile::PhaseCount]{};
+    Thread thread = nullptr;
+
+    static void body(void *self) {
+        auto &sampler = *static_cast<PhaseSampler *>(self);
+        while (sampler.running) {
+            svcSleepThread(250'000);
+            const auto phase = eb::frame_profile::phase;
+            if (phase < eb::frame_profile::PhaseCount) sampler.counts[phase] = sampler.counts[phase] + 1;
+        }
+    }
+    void start() {
+        running = true;
+        // New 3DS core 2 (CanAccessCore2 in cia.rsf); otherwise the system
+        // core, which needs an application CPU time allowance.
+        thread = threadCreate(body, this, 4096, 0x18, 2, false);
+        if (!thread) {
+            APT_SetAppCpuTimeLimit(20);
+            thread = threadCreate(body, this, 4096, 0x18, 1, false);
+        }
+        if (!thread) running = false;
+    }
+    void stop() {
+        if (!thread) return;
+        running = false;
+        threadJoin(thread, U64_MAX);
+        threadFree(thread);
+        thread = nullptr;
+    }
+    ~PhaseSampler() { stop(); }
+};
+
 // -------------------------------------------------------------- settings --
 
 // Persistent options, stored as key=value lines in the app folder.
@@ -104,6 +143,7 @@ struct Settings {
     unsigned frame_skip = 1;     // Render one picture every (frame_skip + 1) frames.
     bool widescreen = false;
     bool show_performance = true;
+    bool profile_detail = false;
 };
 const std::string settings_path = base_dir + "config.txt";
 
@@ -117,7 +157,10 @@ Settings load_settings() {
             if (name == "original_timing") settings.original_timing = value != 0;
             else if (name == "frame_skip") settings.frame_skip = std::min(value, 2u);
             else if (name == "widescreen") settings.widescreen = value != 0;
-            else if (name == "show_performance") settings.show_performance = value != 0;
+            else if (name == "show_performance") {
+                settings.show_performance = value != 0;
+                settings.profile_detail = value == 2;
+            }
         }
         std::fclose(f);
     }
@@ -128,7 +171,8 @@ void save_settings(const Settings &settings) {
     const std::string text = "original_timing=" + std::to_string(settings.original_timing) +
                              "\nframe_skip=" + std::to_string(settings.frame_skip) +
                              "\nwidescreen=" + std::to_string(settings.widescreen) +
-                             "\nshow_performance=" + std::to_string(settings.show_performance) + "\n";
+                             "\nshow_performance=" +
+                             std::to_string(settings.show_performance ? (settings.profile_detail ? 2 : 1) : 0) + "\n";
     write_file_atomic(settings_path, std::span(reinterpret_cast<const std::uint8_t *>(text.data()), text.size()));
 }
 
@@ -289,6 +333,10 @@ int run(const eb::GameAssets &program) {
     ui_state.original_timing = settings.original_timing;
     ui_state.frame_skip = settings.frame_skip;
     ui_state.show_performance = settings.show_performance;
+    ui_state.profile_detail = settings.profile_detail;
+    PhaseSampler sampler;
+    sampler.start();
+    std::uint64_t window_instructions_start = session.diagnostics().cpu_instructions;
     unsigned notice_frames = 0;
     if (auto save = read_file(save_path)) {
         if (save->size() == session.save_memory().size()) {
@@ -353,7 +401,17 @@ int run(const eb::GameAssets &program) {
                 save_settings(settings);
                 break;
             case UiAction::TogglePerformance:
-                ui_state.show_performance = settings.show_performance = !settings.show_performance;
+                // No -> Sí -> Detalle (sampling profile) -> No.
+                if (!settings.show_performance) {
+                    settings.show_performance = true;
+                    settings.profile_detail = false;
+                } else if (!settings.profile_detail) {
+                    settings.profile_detail = true;
+                } else {
+                    settings.show_performance = settings.profile_detail = false;
+                }
+                ui_state.show_performance = settings.show_performance;
+                ui_state.profile_detail = settings.profile_detail;
                 save_settings(settings);
                 break;
             case UiAction::ToggleOriginalTiming:
@@ -377,6 +435,7 @@ int run(const eb::GameAssets &program) {
 
         const std::uint16_t buttons = snes_buttons(held) | ui.held_buttons(touch_now, touch.px, touch.py);
 
+        eb::frame_profile::phase = eb::frame_profile::Frontend;
         const u64 core_start = svcGetSystemTick();
         session.advance_frame(buttons);
         window_core_ticks += svcGetSystemTick() - core_start;
@@ -436,6 +495,24 @@ int run(const eb::GameAssets &program) {
             ui_state.present_ms_tenths = per_frame(window_present_ticks);
             eb::frame_profile::render_ticks = eb::frame_profile::audio_ticks = 0;
             eb::frame_profile::audio_syncs = 0;
+            // Sampling profile: share of wall time per phase, as ms per frame.
+            u32 total = 0;
+            for (unsigned i = 0; i < eb::frame_profile::PhaseCount; ++i) total += sampler.counts[i];
+            const double wall_ms_per_frame = double(now - window_start) / window_frames;
+            for (unsigned i = 0; i < eb::frame_profile::PhaseCount && total; ++i) {
+                const double share = double(sampler.counts[i]) / total;
+                ui_state.phase_percent[i] = std::uint8_t(share * 100 + 0.5);
+                ui_state.phase_ms_tenths[i] = std::uint16_t(share * wall_ms_per_frame * 10 + 0.5);
+                sampler.counts[i] = 0;
+            }
+            const auto instructions = session.diagnostics().cpu_instructions;
+            const auto per_frame_instr = (instructions - window_instructions_start) / window_frames;
+            window_instructions_start = instructions;
+            ui_state.kinstr_per_frame = int(per_frame_instr / 1000);
+            ui_state.ns_per_instr =
+                per_frame_instr ? int(double(window_core_ticks) / window_frames / per_frame_instr * 1e9 /
+                                      SYSCLOCK_ARM11)
+                                : 0;
             window_start = now;
             window_frames = 0;
             window_core_ticks = 0;
@@ -448,7 +525,10 @@ int run(const eb::GameAssets &program) {
         // Only wait when ahead of the SNES frame budget; a slow frame would
         // otherwise lose a whole extra vblank and halve the rate.
         const double frame_ms = double(svcGetSystemTick() - core_start) * 1000.0 / SYSCLOCK_ARM11;
-        if (frame_ms < 1000.0 / snes_frame_rate - 1.0) gspWaitForVBlank();
+        if (frame_ms < 1000.0 / snes_frame_rate - 1.0) {
+            eb::frame_profile::phase = eb::frame_profile::Idle;
+            gspWaitForVBlank();
+        }
     }
     flush_save();
     return 0;

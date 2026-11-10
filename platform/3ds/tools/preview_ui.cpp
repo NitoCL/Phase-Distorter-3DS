@@ -40,6 +40,18 @@ int main(int argc, char **argv) {
         ui.draw(perf_canvas, state);
         write_ppm((out + "/bottom_perf.ppm").c_str(), perf, bottom_width);
     }
+    {
+        UiState profile = state;
+        profile.profile_detail = true;
+        profile.kinstr_per_frame = 74;
+        profile.ns_per_instr = 720;
+        profile.phase_percent = {8, 2, 4, 14, 3, 31, 26, 9, 3};
+        profile.phase_ms_tenths = {50, 12, 25, 87, 19, 192, 161, 56, 19};
+        std::vector<std::uint8_t> fb(bottom_width * screen_height * 3);
+        Canvas canvas(fb.data(), bottom_width);
+        ui.draw(canvas, profile);
+        write_ppm((out + "/bottom_profile.ppm").c_str(), fb, bottom_width);
+    }
     state.notice = "Partida guardada en la SD";
 
     std::vector<std::uint8_t> bottom(bottom_width * screen_height * 3);

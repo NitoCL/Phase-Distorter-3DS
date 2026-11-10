@@ -26,6 +26,25 @@ inline std::uint64_t (*clock)() = nullptr;
 inline std::uint64_t render_ticks = 0;
 inline std::uint64_t audio_ticks = 0;
 inline std::uint64_t audio_syncs = 0;
+
+// Sampling-profiler phase marker. With EB_PHASE_PROFILE defined (3DS build),
+// hot paths record which phase is running in one byte; a sampler thread on
+// another core histograms it. Otherwise Scope compiles to nothing.
+enum Phase : std::uint8_t { Idle, Frontend, Loop, Hooks, Native, Exec, Sched, Video, Audio, PhaseCount };
+inline volatile std::uint8_t phase = Idle;
+#if defined(EB_PHASE_PROFILE)
+struct Scope {
+    std::uint8_t previous;
+    explicit Scope(std::uint8_t next) : previous(phase) { phase = next; }
+    ~Scope() { phase = previous; }
+    Scope(const Scope &) = delete;
+    Scope &operator=(const Scope &) = delete;
+};
+#else
+struct Scope {
+    explicit Scope(std::uint8_t) {}
+};
+#endif
 } // namespace frame_profile
 struct FlashFilterContext;
 class MainCpu65816;
@@ -200,6 +219,7 @@ class SnesBus {
     }
     void sync_audio() {
         if (!pending_audio_clocks_) return;
+        frame_profile::Scope phase_scope(frame_profile::Audio);
         const unsigned clocks = pending_audio_clocks_;
         pending_audio_clocks_ = 0;
         if (!advance_audio_master_clocks) return;

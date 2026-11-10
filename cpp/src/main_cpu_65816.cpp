@@ -117,6 +117,7 @@ void MainCpu65816::write_word(std::uint32_t address, std::uint16_t value, bool w
 void MainCpu65816::advance_instruction_cycles(unsigned instruction_cycles) {
     cycle_count += instruction_cycles;
     if (hardware_) {
+        frame_profile::Scope phase_scope(frame_profile::Sched);
         auto clocks = instruction_cycles * 6 + memory_wait_master_clocks_;
         // Keep normal updates cycle-for-cycle identical. Extra capacity starts
         // only after this entity pass has spent roughly 40% of a video frame.
@@ -248,6 +249,7 @@ void MainCpu65816::service_interrupt(bool nmi) {
 // Interrupt arbitration happens before source-site dispatch. An asserted IRQ
 // wakes WAI even when P.I prevents entering its handler; NMI takes precedence.
 bool MainCpu65816::prepare_instruction() {
+    frame_profile::Scope phase_scope(frame_profile::Hooks);
     if (is_stopped)
         return false;
     if (hardware_ && hardware_->take_nmi()) {
@@ -295,6 +297,7 @@ bool MainCpu65816::prepare_instruction() {
     return true;
 }
 void MainCpu65816::execute_prepared_instruction() {
+    frame_profile::Scope phase_scope(frame_profile::Exec);
     if (!(runtime_ == MainCpuRuntime::Ported && game::runtime::execute_ported_instruction(*this)) &&
         !execute_translated_main_instruction(*this))
         throw std::runtime_error("No translated assembly instruction at " + describe_registers());
@@ -312,11 +315,13 @@ unsigned MainCpu65816::advance_gameplay(unsigned maximum_steps) {
         return 0;
     if (!prepare_instruction())
         return 1;
-    if (runtime_ == MainCpuRuntime::Ported)
+    if (runtime_ == MainCpuRuntime::Ported) {
+        frame_profile::Scope phase_scope(frame_profile::Native);
         if (const unsigned retired = game::runtime::NativeGameplay::try_advance(*this, maximum_steps)) {
             ++native_gameplay_batches_;
             return retired;
         }
+    }
     execute_prepared_instruction();
     return 1;
 }

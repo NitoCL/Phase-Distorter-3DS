@@ -80,6 +80,8 @@ void BottomUi::draw(Canvas &c, const UiState &state) const {
 
     if (options_open_)
         draw_options(c, state);
+    else if (state.show_performance && state.profile_detail)
+        draw_profile(c, state);
     else
         draw_party(c, state);
 
@@ -139,6 +141,26 @@ void BottomUi::draw_party(Canvas &c, const UiState &state) const {
     }
 }
 
+void BottomUi::draw_profile(Canvas &c, const UiState &state) const {
+    // Order and names follow eb::frame_profile::Phase.
+    static constexpr const char *names[] = {"Espera vblank", "Pantallas", "Bucle", "Ganchos", "Nativo",
+                                            "Ejecución", "Planificador", "Video", "Audio"};
+    char header[64];
+    std::snprintf(header, sizeof header, "%dk instr/frame  %d ns/instr", state.kinstr_per_frame,
+                  state.ns_per_instr);
+    c.text(8, 30, header, color::accent);
+    for (unsigned i = 0; i < state.phase_percent.size(); ++i) {
+        const int y = 46 + int(i) * 14;
+        c.text(8, y, names[i], color::dim);
+        c.fill({100, y + 2, 120, 8}, color::bar_empty);
+        c.fill({100, y + 2, state.phase_percent[i] * 120 / 100, 8}, i >= 3 ? color::hp : color::pp);
+        char value[24];
+        std::snprintf(value, sizeof value, "%2u%% %3d.%d", unsigned(state.phase_percent[i]),
+                      state.phase_ms_tenths[i] / 10, state.phase_ms_tenths[i] % 10);
+        c.text(bottom_width - 8 - Canvas::text_width(value), y, value, color::text);
+    }
+}
+
 void BottomUi::draw_options(Canvas &c, const UiState &state) const {
     const std::string skip = std::to_string(state.frame_skip);
     const struct {
@@ -146,7 +168,8 @@ void BottomUi::draw_options(Canvas &c, const UiState &state) const {
         std::string value;
         bool active;
     } rows[] = {{"Pantalla panorámica (400 px)", state.widescreen ? "Sí" : "No", state.widescreen},
-                {"Mostrar rendimiento", state.show_performance ? "Sí" : "No", state.show_performance},
+                {"Mostrar rendimiento",
+                 !state.show_performance ? "No" : state.profile_detail ? "Det" : "Sí", state.show_performance},
                 {"Modo original (rápido, al reiniciar)", state.original_timing ? "Sí" : "No",
                  state.original_timing},
                 {"Saltar frames de video", skip, state.frame_skip > 0},

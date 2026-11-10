@@ -49,6 +49,7 @@ std::uint64_t GameSession::advance_frame(std::uint16_t buttons, std::uint64_t st
     if (step_limit && state.steps >= step_limit)
         return 0;
     state.hardware.set_buttons(buttons);
+    frame_profile::Scope phase_scope(frame_profile::Loop);
     const auto previous_frame = state.hardware.completed_frames;
     // Keep this hot-loop counter local, as in the original desktop loop. A
     // member store on every translated instruction adds avoidable aliasing and
