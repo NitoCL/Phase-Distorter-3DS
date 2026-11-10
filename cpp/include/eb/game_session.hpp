@@ -68,6 +68,9 @@ class GameSession {
     // Catch the APU up only at port accesses and frame ends (see SnesBus).
     // Output is unchanged; it removes per-instruction APU dispatch overhead.
     void set_lazy_audio_sync(bool enabled);
+    // Render the picture for one frame in every (skip + 1); see SnesBus.
+    void set_render_frame_skip(unsigned skip);
+    bool last_frame_rendered() const;
     // Playable members in party order. Reads work RAM only; never alters play.
     std::array<PartyMemberStatus, 4> party_status() const;
     std::span<std::uint8_t> save_memory();

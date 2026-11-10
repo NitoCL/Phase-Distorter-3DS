@@ -22,6 +22,8 @@ struct UiState {
     eb::GameVersion version = eb::GameVersion::US;
     bool widescreen = false;
     bool show_performance = true;
+    bool original_timing = true; // Saved setting; takes effect on next start.
+    unsigned frame_skip = 1;     // Video frames skipped per rendered frame.
     bool audio_available = true;
     int fps_tenths = 0;     // Measured presentation rate x10.
     int frame_ms_tenths = 0; // Mean core time per frame x10.
@@ -33,7 +35,7 @@ struct UiState {
     bool operator==(const UiState &) const = default;
 };
 
-enum class UiAction { None, ToggleWidescreen, TogglePerformance, Exit };
+enum class UiAction { None, ToggleWidescreen, TogglePerformance, ToggleOriginalTiming, CycleFrameSkip, Exit };
 
 class BottomUi {
   public:
@@ -48,7 +50,8 @@ class BottomUi {
     static constexpr Rect talk_button{4, 198, 102, 38};
     static constexpr Rect map_button{109, 198, 102, 38};
     static constexpr Rect options_button{214, 198, 102, 38};
-    static constexpr std::array<Rect, 3> option_rows{{{8, 40, 304, 40}, {8, 86, 304, 40}, {8, 132, 304, 40}}};
+    static constexpr std::array<Rect, 5> option_rows{
+        {{8, 31, 304, 30}, {8, 64, 304, 30}, {8, 97, 304, 30}, {8, 130, 304, 30}, {8, 163, 304, 30}}};
 
   private:
     void draw_party(Canvas &canvas, const UiState &state) const;

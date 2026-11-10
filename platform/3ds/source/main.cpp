@@ -96,6 +96,42 @@ const char *pack_name(eb::GameVersion version) {
     return version == eb::GameVersion::JP ? "mother2" : "earthbound";
 }
 
+// -------------------------------------------------------------- settings --
+
+// Persistent options, stored as key=value lines in the app folder.
+struct Settings {
+    bool original_timing = true; // SNES-exact timing, no enhancement layers: much cheaper per instruction.
+    unsigned frame_skip = 1;     // Render one picture every (frame_skip + 1) frames.
+    bool widescreen = false;
+    bool show_performance = true;
+};
+const std::string settings_path = base_dir + "config.txt";
+
+Settings load_settings() {
+    Settings settings;
+    if (FILE *f = std::fopen(settings_path.c_str(), "r")) {
+        char key[64];
+        unsigned value;
+        while (std::fscanf(f, " %63[^=]=%u", key, &value) == 2) {
+            const std::string name = key;
+            if (name == "original_timing") settings.original_timing = value != 0;
+            else if (name == "frame_skip") settings.frame_skip = std::min(value, 2u);
+            else if (name == "widescreen") settings.widescreen = value != 0;
+            else if (name == "show_performance") settings.show_performance = value != 0;
+        }
+        std::fclose(f);
+    }
+    return settings;
+}
+
+void save_settings(const Settings &settings) {
+    const std::string text = "original_timing=" + std::to_string(settings.original_timing) +
+                             "\nframe_skip=" + std::to_string(settings.frame_skip) +
+                             "\nwidescreen=" + std::to_string(settings.widescreen) +
+                             "\nshow_performance=" + std::to_string(settings.show_performance) + "\n";
+    write_file_atomic(settings_path, std::span(reinterpret_cast<const std::uint8_t *>(text.data()), text.size()));
+}
+
 // ---------------------------------------------------------------- screens --
 
 Canvas top_canvas() {
@@ -229,9 +265,17 @@ std::uint16_t snes_buttons(u32 held) {
 
 int run(const eb::GameAssets &program) {
     const auto version = program.version;
-    eb::GameSession session(program.image, version, /*enhanced_gameplay_timing=*/true);
-    session.set_logical_clock_policy(eb::LogicalClockPolicy::ActorFrames);
-    session.enable_native_sprite_runtime();
+    Settings settings = load_settings();
+    // Same choice as the desktop --original-timing switch. The enhancement
+    // layers (extended CPU budget, actor-frame clock, native sprite runtime)
+    // run checks on every emulated instruction; the 3DS defaults to without.
+    const bool original_timing = settings.original_timing;
+    eb::GameSession session(program.image, version, /*enhanced_gameplay_timing=*/!original_timing);
+    if (!original_timing) {
+        session.set_logical_clock_policy(eb::LogicalClockPolicy::ActorFrames);
+        session.enable_native_sprite_runtime();
+    }
+    session.set_render_frame_skip(settings.frame_skip);
     // Catch the APU up only at port accesses and frame ends: same output,
     // without dispatching to it after every emulated CPU instruction.
     session.set_lazy_audio_sync(true);
@@ -242,6 +286,9 @@ int run(const eb::GameAssets &program) {
     UiState ui_state;
     ui_state.version = version;
     ui_state.build_info = std::to_string(measured_cpu_mhz()) + " MHz  " PD3DS_BUILD;
+    ui_state.original_timing = settings.original_timing;
+    ui_state.frame_skip = settings.frame_skip;
+    ui_state.show_performance = settings.show_performance;
     unsigned notice_frames = 0;
     if (auto save = read_file(save_path)) {
         if (save->size() == session.save_memory().size()) {
@@ -264,11 +311,15 @@ int run(const eb::GameAssets &program) {
         notice_frames = 180;
     };
 
-    bool widescreen = false;
-    session.configure_presentation(256, false, false);
+    bool widescreen = settings.widescreen;
+    session.configure_presentation(widescreen ? top_width : 256, false, false);
 
     Audio3ds audio;
     ui_state.audio_available = audio.available();
+    if (!audio.available()) {
+        ui_state.notice = "Sin audio: falta sdmc:/3ds/dspfirm.cdc";
+        notice_frames = 600;
+    }
     BottomUi ui;
     // The bottom screen is double-buffered: a changed UI is drawn into the
     // hidden buffer on two consecutive frames (once per buffer), so the LCD
@@ -296,12 +347,24 @@ int run(const eb::GameAssets &program) {
             drawn_ui.reset(); // Taps may open/close the options overlay.
             switch (ui.tap(touch.px, touch.py)) {
             case UiAction::ToggleWidescreen:
-                widescreen = !widescreen;
+                widescreen = settings.widescreen = !widescreen;
                 session.configure_presentation(widescreen ? top_width : 256, false, false);
                 clear_top = 2;
+                save_settings(settings);
                 break;
             case UiAction::TogglePerformance:
-                ui_state.show_performance = !ui_state.show_performance;
+                ui_state.show_performance = settings.show_performance = !settings.show_performance;
+                save_settings(settings);
+                break;
+            case UiAction::ToggleOriginalTiming:
+                // Changing timing mid-game is unsupported; apply on next start.
+                ui_state.original_timing = settings.original_timing = !settings.original_timing;
+                save_settings(settings);
+                break;
+            case UiAction::CycleFrameSkip:
+                ui_state.frame_skip = settings.frame_skip = (settings.frame_skip + 1) % 3;
+                session.set_render_frame_skip(settings.frame_skip);
+                save_settings(settings);
                 break;
             case UiAction::Exit:
                 flush_save();
@@ -320,22 +383,26 @@ int run(const eb::GameAssets &program) {
         const auto samples = session.take_audio_samples();
         audio.queue(samples);
 
-        // Top screen: the game, letterboxed into 400x240.
-        const u64 present_start = svcGetSystemTick();
-        auto top = top_canvas();
-        const auto frame = session.presentation_frame();
-        const unsigned width = frame.width ? frame.width : 256;
-        const int height = int(frame.pixels.size() / width);
-        if (width != last_width) {
-            last_width = width;
-            clear_top = 2;
+        // Top screen: the game, letterboxed into 400x240. Skipped video frames
+        // leave the screen untouched (no swap, so no stale buffer is shown).
+        const bool new_picture = session.last_frame_rendered();
+        if (new_picture) {
+            const u64 present_start = svcGetSystemTick();
+            auto top = top_canvas();
+            const auto frame = session.presentation_frame();
+            const unsigned width = frame.width ? frame.width : 256;
+            const int height = int(frame.pixels.size() / width);
+            if (width != last_width) {
+                last_width = width;
+                clear_top = 2;
+            }
+            if (clear_top) {
+                top.clear(0x000000);
+                --clear_top;
+            }
+            top.blit_centered(frame.pixels, int(width), height);
+            window_present_ticks += svcGetSystemTick() - present_start;
         }
-        if (clear_top) {
-            top.clear(0x000000);
-            --clear_top;
-        }
-        top.blit_centered(frame.pixels, int(width), height);
-        window_present_ticks += svcGetSystemTick() - present_start;
 
         // Bottom screen: redraw only when something visible changed.
         ++frame_counter;
@@ -347,7 +414,8 @@ int run(const eb::GameAssets &program) {
             drawn_ui = ui_state;
             bottom_pending = 2;
         }
-        if (bottom_pending) {
+        const bool new_bottom = bottom_pending > 0;
+        if (new_bottom) {
             auto bottom = bottom_canvas(); // Current back buffer.
             ui.draw(bottom, *drawn_ui);
             --bottom_pending;
@@ -375,7 +443,8 @@ int run(const eb::GameAssets &program) {
         }
 
         gfxFlushBuffers();
-        gfxSwapBuffers();
+        if (new_picture) gfxScreenSwapBuffers(GFX_TOP, false);
+        if (new_bottom) gfxScreenSwapBuffers(GFX_BOTTOM, false);
         // Only wait when ahead of the SNES frame budget; a slow frame would
         // otherwise lose a whole extra vblank and halve the rate.
         const double frame_ms = double(svcGetSystemTick() - core_start) * 1000.0 / SYSCLOCK_ARM11;

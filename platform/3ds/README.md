@@ -57,6 +57,18 @@ desglose: **Juego** (lógica del CPU traducido), **Video** (PPU por scanline),
 forma perezosa (`GameSession::set_lazy_audio_sync`): mismo resultado bit a bit,
 verificado por `cpp/tests/lazy_audio_sync_tests.cpp`.
 
+## Opciones (pantalla táctil)
+
+Se guardan en `sdmc:/3ds/phase-distorter/config.txt`.
+
+- **Modo original** (por defecto *Sí*): igual que `--original-timing` en PC. Quita las
+  capas de mejoras (presupuesto extendido, reloj de actores, sprites nativos) que se
+  revisan en cada instrucción emulada. Comportamiento idéntico al SNES, incluido su
+  lag en escenas pesadas. Se aplica al reiniciar la app.
+- **Saltar frames de video** (0/1/2, por defecto 1): dibuja una imagen cada 1, 2 o 3
+  frames. La lógica, la temporización y el audio siguen corriendo en todos los frames
+  (`cpp/tests/render_frame_skip_tests.cpp`).
+
 ## Controles
 
 | 3DS | SNES |

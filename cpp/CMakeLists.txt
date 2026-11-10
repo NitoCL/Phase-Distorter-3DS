@@ -353,7 +353,8 @@ if(EB_BUILD_TESTS)
     foreach(game_test npc_collision_tests npc_collision_native_tests native_execution_budget_tests native_gameplay_tests
                       dialogue_register_tests dialogue_native_execution_tests
                       dialogue_transfer_tests credits_state_tests cutscene_native_execution_tests
-                      battle_targeting_tests battle_targeting_native_tests lazy_audio_sync_tests)
+                      battle_targeting_tests battle_targeting_native_tests lazy_audio_sync_tests
+                      render_frame_skip_tests)
         add_executable(${game_test} tests/${game_test}.cpp)
         target_link_libraries(${game_test} PRIVATE eb_core eb_dsp)
         add_test(NAME ${game_test} COMMAND ${game_test})

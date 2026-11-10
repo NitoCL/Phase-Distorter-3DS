@@ -56,9 +56,12 @@ int main(int argc, char **argv) {
     // Options overlay: opening it disables shortcuts; rows return actions.
     assert(ui.tap(260, 210) == UiAction::None && ui.options_open());
     assert(ui.held_buttons(true, 50, 210) == 0);
-    assert(ui.tap(150, 60) == UiAction::ToggleWidescreen);
-    assert(ui.tap(150, 100) == UiAction::TogglePerformance);
-    assert(ui.tap(150, 150) == UiAction::Exit);
+    assert(ui.tap(150, 45) == UiAction::ToggleWidescreen);
+    assert(ui.tap(150, 78) == UiAction::TogglePerformance);
+    assert(ui.tap(150, 111) == UiAction::ToggleOriginalTiming);
+    assert(ui.tap(150, 144) == UiAction::CycleFrameSkip);
+    assert(ui.tap(150, 177) == UiAction::Exit);
+    assert(ui.tap(150, 196) == UiAction::None); // Gap above the buttons.
     state.widescreen = true;
     state.audio_available = false;
     state.notice.clear();

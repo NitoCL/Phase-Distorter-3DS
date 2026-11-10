@@ -109,6 +109,12 @@ void GameSession::enable_native_sprite_runtime(bool enabled) {
 void GameSession::set_lazy_audio_sync(bool enabled) {
     state_->hardware.set_lazy_audio_sync(enabled);
 }
+void GameSession::set_render_frame_skip(unsigned skip) {
+    state_->hardware.set_render_frame_skip(skip);
+}
+bool GameSession::last_frame_rendered() const {
+    return state_->hardware.last_frame_rendered();
+}
 void GameSession::set_logical_clock_policy(LogicalClockPolicy policy) {
     state_->hardware.set_logical_clock_policy(policy);
 }

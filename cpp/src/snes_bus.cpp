@@ -761,7 +761,7 @@ void SnesBus::advance_clocks(unsigned clocks, bool pause_for_refresh) {
         // Render from the register state for this line before HDMA prepares
         // the following line's effects. Visible output rows start at line 1.
         if (old < 1112 && scanline_master_clock_ >= 1112 && scanline_index_ <= 224) {
-            if (scanline_index_ >= 1) {
+            if (scanline_index_ >= 1 && render_this_frame_) {
                 if (frame_profile::clock) {
                     const auto start = frame_profile::clock();
                     render_scanline(scanline_index_ - 1);
@@ -779,6 +779,8 @@ void SnesBus::advance_clocks(unsigned clocks, bool pause_for_refresh) {
             if (++scanline_index_ == 262) {
                 scanline_index_ = 0;
                 ++completed_frames;
+                last_frame_rendered_ = render_this_frame_;
+                render_this_frame_ = render_frame_skip_ == 0 || completed_frames % (render_frame_skip_ + 1) == 0;
                 nmi_flag_ = false;
                 if (!(ppu_registers_[0] & 0x80))
                     sprite_status_ = 0;

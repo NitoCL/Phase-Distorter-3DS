@@ -212,6 +212,14 @@ class SnesBus {
             advance_audio_master_clocks(clocks);
         }
     }
+    // Optional video frame skipping for slow hosts: PPU output is rendered for
+    // one frame in every (skip + 1). Game logic, HDMA, timing and audio run
+    // for every frame; only the picture of skipped frames is not produced.
+    // No game code reads the PPU sprite status latch ($213E) the renderer sets.
+    void set_render_frame_skip(unsigned skip) { render_frame_skip_ = skip; }
+    unsigned render_frame_skip() const { return render_frame_skip_; }
+    // Whether the most recently completed frame's picture was rendered.
+    bool last_frame_rendered() const { return last_frame_rendered_; }
     std::array<uint32_t, 256 * 224> native_framebuffer{};
     uint64_t completed_frames = 0;
     unsigned scanline_index() const { return scanline_index_; }
@@ -222,6 +230,9 @@ class SnesBus {
   private:
     friend struct RuntimeStateAudit;
     bool lazy_audio_sync_ = false;
+    unsigned render_frame_skip_ = 0;
+    bool render_this_frame_ = true;
+    bool last_frame_rendered_ = true;
     unsigned pending_audio_clocks_ = 0;
     const GameVersion game_version_;
     const bool restore_threed_npcs_;

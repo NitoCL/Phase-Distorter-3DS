@@ -58,7 +58,9 @@ UiAction BottomUi::tap(int x, int y) {
     if (!options_open_) return UiAction::None;
     if (option_rows[0].contains(x, y)) return UiAction::ToggleWidescreen;
     if (option_rows[1].contains(x, y)) return UiAction::TogglePerformance;
-    if (option_rows[2].contains(x, y)) return UiAction::Exit;
+    if (option_rows[2].contains(x, y)) return UiAction::ToggleOriginalTiming;
+    if (option_rows[3].contains(x, y)) return UiAction::CycleFrameSkip;
+    if (option_rows[4].contains(x, y)) return UiAction::Exit;
     return UiAction::None;
 }
 
@@ -81,7 +83,9 @@ void BottomUi::draw(Canvas &c, const UiState &state) const {
     else
         draw_party(c, state);
 
-    if (!state.notice.empty()) {
+    if (options_open_) {
+        // The option rows use this space; messages wait until it closes.
+    } else if (!state.notice.empty()) {
         c.text_centered({0, 180, bottom_width, 14}, state.notice, color::accent);
     } else if (state.show_performance && state.fps_tenths > 0 && !options_open_) {
         const auto tenths = [](int v) { return std::to_string(v / 10) + "." + std::to_string(v % 10); };
@@ -136,25 +140,28 @@ void BottomUi::draw_party(Canvas &c, const UiState &state) const {
 }
 
 void BottomUi::draw_options(Canvas &c, const UiState &state) const {
+    const std::string skip = std::to_string(state.frame_skip);
     const struct {
         const char *label;
-        const char *value;
-    } rows[] = {{"Pantalla panorámica (400 px)", state.widescreen ? "Sí" : "No"},
-                {"Mostrar rendimiento", state.show_performance ? "Sí" : "No"},
-                {"Salir (guarda la partida)", nullptr}};
+        std::string value;
+        bool active;
+    } rows[] = {{"Pantalla panorámica (400 px)", state.widescreen ? "Sí" : "No", state.widescreen},
+                {"Mostrar rendimiento", state.show_performance ? "Sí" : "No", state.show_performance},
+                {"Modo original (rápido, al reiniciar)", state.original_timing ? "Sí" : "No",
+                 state.original_timing},
+                {"Saltar frames de video", skip, state.frame_skip > 0},
+                {"Salir (guarda la partida)", "", false}};
     for (unsigned i = 0; i < option_rows.size(); ++i) {
         const auto r = option_rows[i];
         c.fill(r, color::card);
         c.frame(r, color::card_border);
-        c.text(r.x + 10, r.y + 14, rows[i].label, color::text);
-        if (rows[i].value) {
-            const Rect pill{r.x + r.w - 52, r.y + 10, 42, 20};
-            c.fill(pill, rows[i].value[0] == 'S' ? color::accent : color::button);
-            c.text_centered(pill, rows[i].value, rows[i].value[0] == 'S' ? color::background : color::text);
+        c.text(r.x + 10, r.y + 10, rows[i].label, color::text);
+        if (!rows[i].value.empty()) {
+            const Rect pill{r.x + r.w - 46, r.y + 6, 38, 18};
+            c.fill(pill, rows[i].active ? color::accent : color::button);
+            c.text_centered(pill, rows[i].value, rows[i].active ? color::background : color::text);
         }
     }
-    if (!state.audio_available && state.notice.empty())
-        c.text_centered({0, 180, bottom_width, 14}, "Sin audio: falta sdmc:/3ds/dspfirm.cdc", color::hp_low);
 }
 
 } // namespace pd3ds
